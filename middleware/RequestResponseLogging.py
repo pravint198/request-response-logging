@@ -138,25 +138,29 @@ class LoggingMiddleware:
 
     def log_response(self, request, response):
         response_content = None
-        if response.status_code >= 400:
-            try:
-                if hasattr(response, 'streaming_content'):
-                    response_content = "Response contains streaming response"
-                elif hasattr(response, 'content'):
-                    response_content = json.loads(response.content)
-            except json.JSONDecodeError:
-                response_error = 'Json parsing error'
+        code = 1
+        try:
+            if hasattr(response, 'streaming_content'):
+                response_content = "Response contains streaming response"
+            elif hasattr(response, 'content'):
+                response_content = json.loads(response.content)
+                code = response_content.get('code', 1)
+        except json.JSONDecodeError:
+            response_error = 'Json parsing error'
+            logger.error(f"response_content: {response.content}, "
+                         f"response_error:{response_error}")
+        except Exception as e:
+            response_error = str(e)
+            if hasattr(response, 'content'):
                 logger.error(f"response_content: {response.content}, "
-                             f"response_error:{response_error}")
-            except Exception as e:
-                response_error = str(e)
-                if hasattr(response, 'content'):
-                    logger.error(f"response_content: {response.content}, "
-                                 f"response_error: {response_error}")
-                else:
-                    logger.error(
-                        f"response_content: No response content available, "
-                        f"response_error: {response_error}")
+                             f"response_error: {response_error}")
+            else:
+                logger.error(
+                    f"response_content: No response content available, "
+                    f"response_error: {response_error}")
+
+        if response.status_code < 400 and code==1:
+            response_content = None
 
         duration = round(time.time() - self.start_time, 3)
 
@@ -174,7 +178,7 @@ class LoggingMiddleware:
                 if request.META.get(key):
                     log_response.update({key: request.META[key]})
 
-        if response.status_code < 400:
+        if response.status_code < 400 and code==1:
             logger.info(json.dumps(log_response))
         else:
             logger.error(json.dumps(log_response))
