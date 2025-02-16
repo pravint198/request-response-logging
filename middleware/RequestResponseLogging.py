@@ -40,7 +40,7 @@ class LoggingMiddleware:
         if HEALTH_CHECK_API and request.path == HEALTH_CHECK_API:
             return HttpResponse(content='OK', status=200)
 
-        self.start_time = time.time()
+        start_time = time.time()
         request_id = uuid.uuid4().hex
 
         # check if endpoint is to be ignored for logging
@@ -65,7 +65,7 @@ class LoggingMiddleware:
 
         # Log response data
         if logging_required:
-            self.log_response(request, response)
+            self.log_response(request, response, start_time)
 
         try:
             if isinstance(response, Response):
@@ -136,33 +136,29 @@ class LoggingMiddleware:
         logger.error(f'request_data: {request_data}, '
                      f'request_error: {error}')
 
-    def log_response(self, request, response):
+    def log_response(self, request, response, start_time):
         response_content = None
-        code = 1
-        try:
-            if hasattr(response, 'streaming_content'):
-                response_content = "Response contains streaming response"
-            elif hasattr(response, 'content'):
-                response_content = json.loads(response.content)
-                code = response_content.get('code', 1)
-        except json.JSONDecodeError:
-            response_error = 'Json parsing error'
-            logger.error(f"response_content: {response.content}, "
-                         f"response_error:{response_error}")
-        except Exception as e:
-            response_error = str(e)
-            if hasattr(response, 'content'):
+        if response.status_code >= 400:
+            try:
+                if hasattr(response, 'streaming_content'):
+                    response_content = "Response contains streaming response"
+                elif hasattr(response, 'content'):
+                    response_content = json.loads(response.content)
+            except json.JSONDecodeError:
+                response_error = 'Json parsing error'
                 logger.error(f"response_content: {response.content}, "
-                             f"response_error: {response_error}")
-            else:
-                logger.error(
-                    f"response_content: No response content available, "
-                    f"response_error: {response_error}")
+                             f"response_error:{response_error}")
+            except Exception as e:
+                response_error = str(e)
+                if hasattr(response, 'content'):
+                    logger.error(f"response_content: {response.content}, "
+                                 f"response_error: {response_error}")
+                else:
+                    logger.error(
+                        f"response_content: No response content available, "
+                        f"response_error: {response_error}")
 
-        if response.status_code < 400 and code==1:
-            response_content = None
-
-        duration = round(time.time() - self.start_time, 3)
+        duration = round(time.time() - start_time, 3)
 
         log_response = {
             "descr": "RESPONSE",
@@ -178,7 +174,7 @@ class LoggingMiddleware:
                 if request.META.get(key):
                     log_response.update({key: request.META[key]})
 
-        if response.status_code < 400 and code==1:
+        if response.status_code < 400:
             logger.info(json.dumps(log_response))
         else:
             logger.error(json.dumps(log_response))
